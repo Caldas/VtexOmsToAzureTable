@@ -1,0 +1,152 @@
+{
+  "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "siteName": {
+      "type": "string",
+      "metadata": {
+        "description": "The Web app name that will be deployed"
+      }
+    },
+    "VtexAccountName": {
+      "type": "string",
+      "defaultValue": "{ACCOUNT_NAME}",
+      "metadata": {
+        "description": "Your Vtex Account Name - {ACCOUNT_NAME}.vtexcommercestable.com.br/api/oms/pvt/feed/orders/status"
+      }
+    },
+    "VtexAppKey": {
+      "type": "string",
+      "defaultValue": "{APP_KEY}"
+    },
+    "VtexAppToken": {
+      "type": "string",
+      "defaultValue": "{APP_TOKEN}"
+    }
+  },
+  "variables": {
+    "varsitename": "[replace(parameters('siteName'),' ','')]",
+    "hostingPlanName": "[toLower(concat(variables('varsitename'),'host'))]",
+    "hostingPlanSku": "S1",
+    "repoUrl": "https://github.com/vtex/VtexInsights.git",
+    "GitBranch": "master",
+    "AzureLocation": "centralus",
+    "StorageName": "[toLower(concat(variables('varsitename'),'stg'))]",
+    "VtexAppToken": "[toLower(parameters('VtexAppToken'))]",
+    "VtexAppKey": "[toLower(parameters('VtexAppKey'))]",
+    "VarVtexAccountName": "[toLower(replace(parameters('VtexAccountName'),' ',''))]",
+    "AppInsightsName": "[toLower(concat(variables('varsitename'),'asight'))]",
+    "InsightsID": "[toLower(concat(variables('varsitename'),'aisightsid'))]",
+    "serviceBusNamespaceName": "[toLower(concat(variables('varsitename'),'sb'))]",
+    "serviceBusEventHubName": "[toLower(concat(variables('varsitename'),'evthub'))]",
+    "defaultSASKeyName": "RootManageSharedAccessKey",
+    "authRuleResourceId": "[resourceId('Microsoft.Eventhub/namespaces/authorizationRules', variables('serviceBusNamespaceName'), variables('defaultSASKeyName'))]"
+  },
+    "resources": [
+      {
+        "apiVersion": "2015-06-15",
+        "type": "Microsoft.Storage/storageAccounts",
+        "name": "[variables('StorageName')]",
+        "location": "[variables('AzureLocation')]",
+        "properties": {
+          "accountType": "Standard_LRS"
+        }
+      },
+      {
+        "apiVersion": "2014-09-01",
+        "name": "[variables('serviceBusNamespaceName')]",
+        "type": "Microsoft.EventHub/namespaces",
+        "location": "[variables('AzureLocation')]",
+        "resources": [
+          {
+            "apiVersion": "2014-09-01",
+            "name": "[variables('serviceBusEventHubName')]",
+            "type": "eventHubs",
+            "dependsOn": [
+              "[concat('Microsoft.EventHub/namespaces/', variables('serviceBusNamespaceName'))]"
+            ],
+            "properties": {
+              "path": "[variables('serviceBusEventHubName')]"
+            }
+          }
+        ]
+      },
+      {
+        "apiVersion": "2015-08-01",
+        "name": "[variables('hostingPlanName')]",
+        "type": "Microsoft.Web/serverfarms",
+        "location": "[variables('AzureLocation')]",
+        "tags": {
+          "displayName": "HostingPlan"
+        },
+        "sku": {
+          "name": "[variables('hostingPlanSku')]",
+          "capacity": "1"
+        },
+        "properties": {
+          "name": "[variables('hostingPlanName')]"
+        }
+      },
+      {
+        "apiVersion": "2014-04-01",
+        "location": "[variables('AzureLocation')]",
+        "name": "[variables('AppInsightsName')]",
+        "type": "Microsoft.Insights/components",
+        "properties": { "applicationId": "[variables('InsightsID')" }
+      },
+      {
+        "apiVersion": "2015-08-01",
+        "name": "[variables('varsitename')]",
+        "type": "Microsoft.Web/sites",
+        "location": "[variables('AzureLocation')]",
+        "dependsOn": [
+          "[concat('Microsoft.Web/serverFarms/', variables('hostingPlanName'))]",
+          "[concat('Microsoft.Insights/components/', variables('AppInsightsName'))]",
+          "[concat('Microsoft.Storage/storageAccounts/', variables('StorageName'))]",
+          "[concat('Microsoft.EventHub/namespaces/', variables('serviceBusNamespaceName'))]"
+        ],
+        "tags": {
+          "[concat('hidden-related:', resourceGroup().id, '/providers/Microsoft.Web/serverfarms/', variables('hostingPlanName'))]": "VtexDashBoard"
+        },
+        "properties": {
+          "name": "[variables('varsitename')]",
+          "serverFarmId": "[variables('hostingPlanName')]",
+          "siteConfig": {
+            "AlwaysOn": true
+          }
+        },
+        "resources": [
+          {
+            "apiVersion": "2015-08-01",
+            "type": "config",
+            "name": "appsettings",
+            "dependsOn": [
+              "[concat('Microsoft.Web/Sites/', variables('varsitename'))]"
+            ],
+            "properties": {
+              "vtexapptoken": "[variables('VtexAppToken')]",
+              "vtexappkey": "[variables('VtexAppKey')]",
+              "vtexaccountname": "[variables('VarVtexAccountName')]",
+              "storageconnectionstring": "[concat('DefaultEndpointsProtocol=https;AccountName=',variables('StorageName'),';AccountKey=',listkeys(resourceId('Microsoft.Storage/storageAccounts', variables('StorageName')), '2015-05-01-preview').key1,';')]",
+              "instrumentationkey": "[reference(concat('Microsoft.Insights/components/', variables('AppInsightsName'))).InstrumentationKey]",
+              "servicebusconnectionstring": "[listkeys(variables('authRuleResourceId'), '2014-09-01').primaryConnectionString]",
+              "eventhubname": "[variables('serviceBusEventHubName')]"
+            }
+          },
+          {
+            "apiVersion": "2015-08-01",
+            "name": "web",
+            "type": "sourcecontrols",
+            "dependsOn": [
+              "[resourceId('Microsoft.Web/Sites', variables('varsitename'))]"
+            ],
+            "properties": {
+              "RepoUrl": "[variables('repoUrl')]",  
+              "branch": "[variables('GitBranch')]",
+              "IsManualIntegration": true
+            }
+          }
+        ]
+      }
+    ]
+  }

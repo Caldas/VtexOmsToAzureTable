@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
+VisualStudioVersion = 14.0.25123.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "easydeploy", "easydeploy\easydeploy.csproj", "{E590DD15-38B1-4A67-9E13-AC7BC8CA1371}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{97B2069F-A392-4BE4-9282-3EFF7BD744AF}"
+	ProjectSection(SolutionItems) = preProject
+		azuredeploy.json = azuredeploy.json
+		README.md = README.md
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E590DD15-38B1-4A67-9E13-AC7BC8CA1371}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E590DD15-38B1-4A67-9E13-AC7BC8CA1371}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E590DD15-38B1-4A67-9E13-AC7BC8CA1371}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E590DD15-38B1-4A67-9E13-AC7BC8CA1371}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
