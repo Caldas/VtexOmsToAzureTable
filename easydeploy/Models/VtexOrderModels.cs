@@ -1,5 +1,4 @@
 ﻿using Microsoft.WindowsAzure.Storage.Table;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 
@@ -18,7 +17,6 @@ namespace easydeploy.Models
         public string Status { get; set; }
         public string DateTime { get; set; }
         public string CommitToken { get; set; }
-        public string JsonOrderContent { get; set; }
 
         public VtexFeedOrder()
         {
@@ -30,38 +28,19 @@ namespace easydeploy.Models
             this.Status = jsonFeedOrder["status"].Value<string>();
             this.DateTime = jsonFeedOrder["dateTime"].Value<string>();
             this.CommitToken = jsonFeedOrder["commitToken"].Value<string>();
-            this.JsonOrderContent = string.Empty;
         }
     }
 
     public class VtexOrder : TableEntity
     {
-        
-        [JsonProperty("accountname")]
         public string AccountName { get; set; }
-
-        [JsonProperty("origin")]
         public string Origin { get; set; }
-
-        [JsonProperty("affiliateid")]
         public string AffiliateId { get; set; }
-
-        [JsonProperty("saleschannel")]
         public string SalesChannel { get; set; }
-
-        [JsonProperty("value")]
         public string Value { get; set; }
-
-        [JsonProperty("creationdate")]
         public string CreationDate { get; set; }
-
-        [JsonProperty("lastchange")]
         public string LastChange { get; set; }
-
-        [JsonProperty("status")]
         public string Status { get; set; }
-
-
 
         public VtexOrder(string accountName, string orderId, string status, JObject jsonObject)
         {

@@ -1,16 +1,12 @@
 ﻿using easydeploy.Models;
 using Microsoft.ApplicationInsights;
 using Microsoft.ApplicationInsights.DataContracts;
-using Microsoft.ServiceBus.Messaging;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Table;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
-using System.Globalization;
-using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -44,24 +40,8 @@ namespace easydeploy
         private CloudTable ordersPaymentPendingTable = null;
         private CloudTable ordersPaymentApprovedTable = null;
         private CloudTable ordersCanceledTable = null;
-        private EventHubClient ordersEventHub = null;
         private Timer feedTimer = null;
         private TelemetryClient appInsightsClient = null;
-
-        /// <summary>
-        /// When true insted of getting orders from vtex oms API it generates random values
-        /// </summary>
-        private bool GenerateRandomValues
-        {
-            get
-            {
-                try { return bool.Parse(ConfigurationManager.AppSettings["GenerateRandomValues"]); }
-                catch
-                {
-                    return false;
-                }
-            }
-        }
 
         #endregion
 
@@ -71,24 +51,14 @@ namespace easydeploy
         {
             this.InitializeConfigurationsFields();
             this.InitializeStorageAccount();
-            this.InitializaEventHub();
             this.InitializeTableClient();
             this.InitializaAppInsights();
             this.InitializeFeedTimer();
         }
 
-
-
         #endregion
 
         #region [ Initialization Methods ]
-        /// <summary>
-        /// Initialize Event Hub
-        /// </summary>
-        private void InitializaEventHub()
-        {
-            ordersEventHub = EventHubClient.CreateFromConnectionString(ConfigurationManager.AppSettings["servicebusconnectionstring"], ConfigurationManager.AppSettings["eventhubname"]);
-        }
 
         private void InitializaAppInsights()
         {
@@ -150,76 +120,22 @@ namespace easydeploy
 
         private void FeedTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
-            if (!GenerateRandomValues)
+            var retrieveTask = this.RetreiveOmsFeedData();
+            retrieveTask.ConfigureAwait(false);
+            retrieveTask.ContinueWith(task =>
             {
-                var retrieveTask = this.RetreiveOmsFeedData();
-                retrieveTask.ConfigureAwait(false);
-                retrieveTask.ContinueWith(task =>
+                JArray omsFeedJsonData = task.Result;
+                List<VtexFeedOrder> feedOrders = this.TransformToVtexFeedOrders(omsFeedJsonData);
+                this.appInsightsClient.TrackMetric("FeedRetrievedItens", feedOrders.Count);
+                foreach (var feedOrder in feedOrders)
                 {
-                    JArray omsFeedJsonData = task.Result;
-                    List<VtexFeedOrder> feedOrders = this.TransformToVtexFeedOrders(omsFeedJsonData);
-                    this.appInsightsClient.TrackMetric("FeedRetrievedItens", feedOrders.Count);
-                    foreach (var feedOrder in feedOrders)
-                    {
-                        var order = this.GetVtexOrder(feedOrder).Result;
-                        this.ProcessOrder(order);
-                        this.CommitFeedToken(feedOrder.CommitToken).Wait();
-                    }
-                    this.feedTimer.Start();
-                });
-            }
-            else
-            {
-                var feedOrders = this.GetRandomOrders(10);
-                foreach (VtexOrder order in feedOrders)
-                {
+                    var order = this.GetVtexOrder(feedOrder).Result;
                     this.ProcessOrder(order);
-
+                    this.CommitFeedToken(feedOrder.CommitToken).Wait();
                 }
                 this.feedTimer.Start();
-            }
+            });
         }
-
-
-
-        private List<VtexOrder> GetRandomOrders(int NumOrders)
-        {
-            System.Threading.Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
-            List<VtexOrder> VtexOrders = new List<VtexOrder>();
-            Random rnd = new Random();
-            for (int i = 0; i <= NumOrders; i++)
-            {
-                int status = -1;
-                VtexFeedOrder vtexfeed = new VtexFeedOrder();
-                vtexfeed.CommitToken = string.Format("{0}-{1}", "CommitToken", rnd.Next(0, int.MaxValue).ToString());
-                vtexfeed.DateTime = DateTime.Now.ToString();
-                vtexfeed.OrderId = rnd.Next(0, int.MaxValue).ToString();
-                status = rnd.Next(0, 3);
-
-                switch (status)
-                {
-                    case (int)OrderStatus.Canceled: vtexfeed.Status = "canceled"; break;
-                    case (int)OrderStatus.PaymentApproved: vtexfeed.Status = "payment-approved"; break;
-                    case (int)OrderStatus.WaitingForSellerConfirmation: vtexfeed.Status = "waiting-for-seller-confirmation"; break;
-                }
-
-                var orderValue = rnd.Next(1, 10000).ToString();
-                StringBuilder jsobnstr = new StringBuilder("");
-                jsobnstr.AppendFormat("{{\"orderId\": \"{0}\", \"sequence\": \"67155135\", \"marketplaceOrderId\": \"\",\"marketplaceServicesEndpoint\": \"http://portal.vtexcommerce.com.br/api/oms?an=shopvtex\",", vtexfeed.OrderId);
-                jsobnstr.AppendFormat("\"sellerOrderId\": \"00-921743325842-01\", \"origin\": \"Random Orders\",\"affiliateId\": \"\",\"salesChannel\": \"2\",\"status\": \"{0}\",\"statusDescription\": \"Faturado\",\"value\": {1},", vtexfeed.Status, orderValue);
-                jsobnstr.AppendFormat("\"creationDate\": \"{0}\",\"lastChange\": \"{0}\",\"orderGroup\": \"421743525842\",\"totals\": [{{\"id\": \"Items\", \"name\": \"Items Total\",\"value\": {1}}},", DateTime.Now.ToString(), orderValue);
-                jsobnstr.Append("{\"id\": \"Discounts\",\"name\": \"Discounts Total\"},{\"id\": \"Shipping\", \"name\": \"Shipping Total\",\"value\": 756},{\"id\": \"Tax\", \"name\": \"Tax Total\"}]}");
-
-                vtexfeed.JsonOrderContent = jsobnstr.ToString();
-
-                var order = TransformToVtexOrder(vtexfeed.OrderId, vtexfeed.Status, vtexfeed.JsonOrderContent);
-                VtexOrders.Add(order);
-            }
-
-            return VtexOrders;
-
-        }
-
 
         private HttpClient DequeueHttpClientInstance()
         {
@@ -344,7 +260,6 @@ namespace easydeploy
 
         private void ProcessOrder(VtexOrder order)
         {
-            //Table Storage
             switch (order.Status)
             {
                 case "waiting-for-seller-confirmation":
@@ -357,27 +272,6 @@ namespace easydeploy
                     this.RegisterOrder(this.ordersCanceledTable, order);
                     break;
             }
-
-            //Eventhub (for all the status)
-            this.RegisterEventHubOrder(ordersEventHub, order);
-
-        }
-
-        private void RegisterEventHubOrder(EventHubClient eventhubclient, VtexOrder order)
-        {
-            if (eventhubclient == null || order == null)
-                return;
-
-            var memoryStream = new MemoryStream();
-            var sw = new StreamWriter(memoryStream);
-            sw.Write(JsonConvert.SerializeObject(order));
-            sw.Flush();
-
-            memoryStream.Position = 0;
-            EventData data = new EventData(memoryStream);
-
-            var eventHubTask = eventhubclient.SendAsync(data);
-            eventHubTask.ConfigureAwait(true);
         }
 
         private void RegisterAppInsightEvent(VtexOrder order)

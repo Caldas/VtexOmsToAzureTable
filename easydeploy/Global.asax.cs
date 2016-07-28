@@ -1,5 +1,4 @@
-﻿using easydeploy.Models;
-using Microsoft.ApplicationInsights.Extensibility;
+﻿using Microsoft.ApplicationInsights.Extensibility;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -14,7 +13,6 @@ namespace easydeploy
     public class MvcApplication : System.Web.HttpApplication
     {
         private DataManager dataManagerInstance = null;
-       
 
         protected void Application_Start()
         {
