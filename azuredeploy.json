@@ -29,7 +29,7 @@
     "varsitename": "[replace(parameters('siteName'),' ','')]",
     "hostingPlanName": "[toLower(concat(variables('varsitename'),'hostplan'))]",
     "hostingPlanSku": "B1",
-    "repoUrl": "https://github.com/vtex/VtexInsights.git",
+    "repoUrl": "https://github.com/vtex/VtexOmsToAzureTable.git",
     "GitBranch": "master",
     "AzureLocation": "Central US",
     "StorageName": "[toLower(concat(variables('varsitename'),'storage'))]",
