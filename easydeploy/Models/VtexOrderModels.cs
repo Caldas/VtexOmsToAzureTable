@@ -44,13 +44,13 @@ namespace easydeploy.Models
 
         public VtexOrder(string accountName, string orderId, string status, JObject jsonObject)
         {
-            this.Timestamp = DateTime.UtcNow;
-            this.SetupPartitionKey();
-            this.RowKey = orderId;
+            Timestamp = DateTime.UtcNow;
+            SetupPartitionKey();
+            RowKey = orderId;
 
-            this.AccountName = accountName;
-            this.Status = status;
-            this.SetupFields(jsonObject);
+            AccountName = accountName;
+            Status = status;
+            SetupFields(jsonObject);
         }
 
         private void SetupPartitionKey()
@@ -58,17 +58,17 @@ namespace easydeploy.Models
             //Check this link http://msdn.microsoft.com/en-us/library/dd179338.aspx to see the allowed values for this fields
             //This two fields works as the record key
             //The partionkey will be used to determinate how the data will be clustered, so use it with this in your mind
-            this.PartitionKey = this.Timestamp.ToString("d").Replace("/", "");
+            PartitionKey = Timestamp.ToString("d").Replace("/", "");
         }
 
         private void SetupFields(JObject jsonObject)
         {
-            this.Origin = jsonObject["origin"].Value<string>();
-            this.AffiliateId = jsonObject["affiliateId"].Value<string>();
-            this.SalesChannel = jsonObject["salesChannel"].Value<string>();
-            this.Value = jsonObject["value"].Value<string>();
-            this.CreationDate = jsonObject["creationDate"].Value<string>();
-            this.LastChange = jsonObject["lastChange"].Value<string>();
+            Origin = jsonObject["origin"].Value<string>();
+            AffiliateId = jsonObject["affiliateId"].Value<string>();
+            SalesChannel = jsonObject["salesChannel"].Value<string>();
+            Value = jsonObject["value"].Value<string>();
+            CreationDate = jsonObject["creationDate"].Value<string>();
+            LastChange = jsonObject["lastChange"].Value<string>();
         }
     }
 }

@@ -7,6 +7,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -36,6 +37,8 @@ namespace easydeploy
         private string appKey = string.Empty;
         private string appToken = string.Empty;
         private string instrumentationkey = string.Empty;
+        private string storageconnection = string.Empty;
+        private HttpClient httpClientInstance = null;
         private CloudStorageAccount storageAccount = null;
         private CloudTable ordersPaymentPendingTable = null;
         private CloudTable ordersPaymentApprovedTable = null;
@@ -49,21 +52,45 @@ namespace easydeploy
 
         public DataManager()
         {
-            this.InitializeConfigurationsFields();
-            this.InitializeStorageAccount();
-            this.InitializeTableClient();
-            this.InitializaAppInsights();
-            this.InitializeFeedTimer();
+            InitializeConfigurationsFields();
+            InitializaAppInsights();
+            InitializeStorageAccount();
+            InitializeTableClient();
+            InitializeHttpClient();
+            InitializeFeedTimer();
+        }
+
+        private void InitializeHttpClient()
+        {
+            httpClientInstance = new HttpClient();
+            httpClientInstance.DefaultRequestHeaders.Add("x-vtex-api-appKey", appKey);
+            httpClientInstance.DefaultRequestHeaders.Add("x-vtex-api-appToken", appToken);
+            httpClientInstance.DefaultRequestHeaders.Accept.Add(JsonMediaTypeWithQualityHeaderValue);
         }
 
         #endregion
 
         #region [ Initialization Methods ]
 
+        /// <summary>
+        /// Initialize fields from configuration application settings
+        /// </summary>
+        private void InitializeConfigurationsFields()
+        {
+            accountName = ConfigurationManager.AppSettings["vtexaccountname"];
+            appKey = ConfigurationManager.AppSettings["vtexappkey"];
+            appToken = ConfigurationManager.AppSettings["vtexapptoken"];
+            instrumentationkey = ConfigurationManager.AppSettings["instrumentationkey"];
+            storageconnection = ConfigurationManager.AppSettings["storageconnectionstring"];
+        }
+
+        /// <summary>
+        /// Initialize Azure Application Insights client
+        /// </summary>
         private void InitializaAppInsights()
         {
-            this.appInsightsClient = new TelemetryClient();
-            this.appInsightsClient.InstrumentationKey = this.instrumentationkey;
+            appInsightsClient = new TelemetryClient();
+            appInsightsClient.InstrumentationKey = instrumentationkey;
         }
 
         /// <summary>
@@ -71,7 +98,14 @@ namespace easydeploy
         /// </summary>
         private void InitializeStorageAccount()
         {
-            this.storageAccount = CloudStorageAccount.Parse(ConfigurationManager.AppSettings["storageconnectionstring"]);
+            try
+            {
+                storageAccount = CloudStorageAccount.Parse(storageconnection);
+            }
+            catch (Exception exception)
+            {
+                appInsightsClient.TrackException(exception, new Dictionary<string, string>() { { "workflow", "Initializing storage account" } });
+            }
         }
 
         /// <summary>
@@ -79,16 +113,23 @@ namespace easydeploy
         /// </summary>
         private void InitializeTableClient()
         {
-            CloudTableClient tableClient = this.storageAccount.CreateCloudTableClient();
+            try
+            {
+                CloudTableClient tableClient = this.storageAccount.CreateCloudTableClient();
 
-            this.ordersPaymentPendingTable = tableClient.GetTableReference("ordersPaymentPending");
-            this.ordersPaymentApprovedTable = tableClient.GetTableReference("ordersPaymentApproved");
-            this.ordersCanceledTable = tableClient.GetTableReference("ordersCanceled");
+                ordersPaymentPendingTable = tableClient.GetTableReference("ordersPaymentPending");
+                ordersPaymentApprovedTable = tableClient.GetTableReference("ordersPaymentApproved");
+                ordersCanceledTable = tableClient.GetTableReference("ordersCanceled");
 
-            // Create the table if it doesn't exist.
-            this.ordersPaymentPendingTable.CreateIfNotExists();
-            this.ordersPaymentApprovedTable.CreateIfNotExists();
-            this.ordersCanceledTable.CreateIfNotExists();
+                // Create the table if it doesn't exist.
+                ordersPaymentPendingTable.CreateIfNotExists();
+                ordersPaymentApprovedTable.CreateIfNotExists();
+                ordersCanceledTable.CreateIfNotExists();
+            }
+            catch (Exception exception)
+            {
+                appInsightsClient.TrackException(exception, new Dictionary<string, string>() { { "workflow", "Initializing table storage" } });
+            }
         }
 
         /// <summary>
@@ -96,22 +137,11 @@ namespace easydeploy
         /// </summary>
         private void InitializeFeedTimer()
         {
-            this.feedTimer = new Timer(FeedTimerIntervalInMiliseconds);
-            this.feedTimer.AutoReset = false;
-            this.feedTimer.Enabled = true;
-            this.feedTimer.Elapsed += this.FeedTimer_Elapsed;
-            this.FeedTimer_Elapsed(this, null);
-        }
-
-        /// <summary>
-        /// Initialize fields from configuration application settings
-        /// </summary>
-        private void InitializeConfigurationsFields()
-        {
-            this.accountName = ConfigurationManager.AppSettings["vtexaccountname"];
-            this.appKey = ConfigurationManager.AppSettings["vtexappkey"];
-            this.appToken = ConfigurationManager.AppSettings["vtexapptoken"];
-            this.instrumentationkey = ConfigurationManager.AppSettings["instrumentationkey"];
+            feedTimer = new Timer(FeedTimerIntervalInMiliseconds);
+            feedTimer.AutoReset = false;
+            feedTimer.Enabled = true;
+            feedTimer.Elapsed += FeedTimer_Elapsed;
+            FeedTimer_Elapsed(this, null);
         }
 
         #endregion
@@ -120,54 +150,30 @@ namespace easydeploy
 
         private void FeedTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
-            var retrieveTask = this.RetreiveOmsFeedData();
+            var retrieveTask = RetreiveOmsFeedData();
             retrieveTask.ConfigureAwait(false);
+
             retrieveTask.ContinueWith(task =>
             {
-                JArray omsFeedJsonData = task.Result;
-                List<VtexFeedOrder> feedOrders = this.TransformToVtexFeedOrders(omsFeedJsonData);
-                this.appInsightsClient.TrackMetric("FeedRetrievedItens", feedOrders.Count);
-                foreach (var feedOrder in feedOrders)
+                if (task.Exception == null)
                 {
-                    var order = this.GetVtexOrder(feedOrder).Result;
-                    this.ProcessOrder(order);
-                    this.CommitFeedToken(feedOrder.CommitToken).Wait();
+                    JArray omsFeedJsonData = task.Result;
+                    List<VtexFeedOrder> feedOrders = TransformToVtexFeedOrders(omsFeedJsonData);
+
+                    appInsightsClient.TrackMetric("FeedRetrievedItens", feedOrders.Count);
+
+                    foreach (var feedOrder in feedOrders)
+                    {
+                        var order = GetVtexOrder(feedOrder).Result;
+                        ProcessOrder(order);
+                        CommitFeedToken(feedOrder.CommitToken).Wait();
+                    }
+
+                    appInsightsClient.Flush();
                 }
-                this.feedTimer.Start();
+                
+                feedTimer.Start();
             });
-        }
-
-        private HttpClient DequeueHttpClientInstance()
-        {
-            HttpClient client = null;
-
-            if (HttpClientQueue.Count > 0)
-            {
-                try
-                {
-                    client = HttpClientQueue.Dequeue();
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            if (client == null)
-                client = GetNewHttpClientInstance();
-            return client;
-        }
-
-        private void EnqueueHttpClientInstance(HttpClient client)
-        {
-            HttpClientQueue.Enqueue(client);
-        }
-
-        private HttpClient GetNewHttpClientInstance()
-        {
-            HttpClient client = new HttpClient();
-            client.DefaultRequestHeaders.Add("x-vtex-api-appKey", this.appKey);
-            client.DefaultRequestHeaders.Add("x-vtex-api-appToken", this.appToken);
-            client.DefaultRequestHeaders.Accept.Add(JsonMediaTypeWithQualityHeaderValue);
-            return client;
         }
 
         /// <summary>
@@ -177,18 +183,15 @@ namespace easydeploy
         {
             JArray result = null;
             string response = string.Empty;
-            HttpClient client = this.DequeueHttpClientInstance();
             Uri address = new Uri("http://" + this.accountName + ".vtexcommercestable.com.br/api/oms/pvt/feed/orders/status");
             try
             {
-                response = await client.GetStringAsync(address);
+                response = await httpClientInstance.GetStringAsync(address);
                 result = JArray.Parse(response);
             }
             catch (Exception ex)
             {
-                this.appInsightsClient.TrackException(ex);
-                this.EnqueueHttpClientInstance(client);
-                throw ex.GetBaseException();
+                appInsightsClient.TrackException(ex, new Dictionary<string, string>() { { "workflow", "Retrieve OMS feed" } });
             }
             return result;
         }
@@ -217,19 +220,16 @@ namespace easydeploy
         {
             VtexOrder result = null;
             string response = string.Empty;
-            HttpClient client = this.DequeueHttpClientInstance();
 
-            Uri address = new Uri("http://" + this.accountName + ".vtexcommercestable.com.br/api/oms/pvt/orders/" + feedOrder.OrderId);
+            Uri address = new Uri("http://" + accountName + ".vtexcommercestable.com.br/api/oms/pvt/orders/" + feedOrder.OrderId);
             try
             {
-                response = await client.GetStringAsync(address);
-                result = this.TransformToVtexOrder(feedOrder.OrderId, feedOrder.Status, response);
+                response = await httpClientInstance.GetStringAsync(address);
+                result = TransformToVtexOrder(feedOrder.OrderId, feedOrder.Status, response);
             }
             catch (Exception ex)
             {
-                this.appInsightsClient.TrackException(ex);
-                this.EnqueueHttpClientInstance(client);
-                throw ex.GetBaseException();
+                appInsightsClient.TrackException(ex, new Dictionary<string, string>() { { "workflow", "Get VTEX order" } });
             }
 
             return result;
@@ -237,20 +237,17 @@ namespace easydeploy
 
         private async Task CommitFeedToken(string feedCommitToken)
         {
-            HttpClient client = this.DequeueHttpClientInstance();
             Uri address = new Uri("http://" + this.accountName + ".vtexcommercestable.com.br/api/oms/pvt/feed/orders/status/confirm");
             try
             {
                 feedCommitToken = feedCommitToken.Replace("\"", "\\\"");
                 string postContent = "[{\"commitToken\":\"" + feedCommitToken + "\"}]";
-                var response = await client.PostAsync(address, new StringContent(postContent, Encoding.UTF8, "application/json"));
+                var response = await httpClientInstance.PostAsync(address, new StringContent(postContent, Encoding.UTF8, "application/json"));
                 response.EnsureSuccessStatusCode();
             }
             catch (Exception ex)
             {
-                this.appInsightsClient.TrackException(ex);
-                this.EnqueueHttpClientInstance(client);
-                throw ex.GetBaseException();
+                appInsightsClient.TrackException(ex, new Dictionary<string, string>() { { "workflow", "Commit feed token" } });
             }
         }
 
@@ -263,65 +260,50 @@ namespace easydeploy
             switch (order.Status)
             {
                 case "waiting-for-seller-confirmation":
-                    this.RegisterOrder(this.ordersPaymentPendingTable, order);
+                    RegisterOrder(ordersPaymentPendingTable, order);
                     break;
                 case "payment-approved":
-                    this.RegisterOrder(this.ordersPaymentApprovedTable, order);
+                    RegisterOrder(ordersPaymentApprovedTable, order);
                     break;
                 case "canceled":
-                    this.RegisterOrder(this.ordersCanceledTable, order);
+                    RegisterOrder(ordersCanceledTable, order);
                     break;
             }
         }
 
-        private void RegisterAppInsightEvent(VtexOrder order)
+        private void TrackEvent(VtexOrder order, double value)
         {
-            var realValue = Double.Parse(order.Value) / 100; //TODO: Check how to make this configurable for account that use more than 2 digits
-            this.TrackEvent(order, realValue);
-            this.appInsightsClient.Flush();
-        }
+            var dateTime = DateTime.ParseExact(order.LastChange, "MM/dd/yyyy hh:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
-        private void TrackEvent(VtexOrder order, double realValue)
-        {
             EventTelemetry telemetry = new EventTelemetry("Order");
             telemetry.Properties.Add("AccountName", order.AccountName);
             telemetry.Properties.Add("AffiliateId", order.AffiliateId);
-            telemetry.Properties.Add("LastChange", DateTimeOffset.Parse(order.LastChange).ToString("o"));
+            telemetry.Properties.Add("LastChange", dateTime.ToString("o"));
             telemetry.Properties.Add("Origin", order.Origin);
             telemetry.Properties.Add("SalesChannel", order.SalesChannel);
             telemetry.Properties.Add("Status", order.Status);
-            telemetry.Timestamp = DateTimeOffset.Parse(order.CreationDate);
-            telemetry.Metrics.Add("Value", realValue);
-            this.appInsightsClient.TrackEvent(telemetry);
-        }
+            telemetry.Timestamp = dateTime;
+            telemetry.Metrics.Add("Value", value);
 
-        private void TrackMetric(VtexOrder order, double realValue)
-        {
-            MetricTelemetry telemetry = new MetricTelemetry("OrderAmount", realValue);
-            telemetry.Timestamp = DateTimeOffset.Parse(order.CreationDate);
-            telemetry.Properties.Add("AccountName", order.AccountName);
-            telemetry.Properties.Add("AffiliateId", order.AffiliateId);
-            telemetry.Properties.Add("LastChange", DateTimeOffset.Parse(order.LastChange).ToString("o"));
-            telemetry.Properties.Add("Origin", order.Origin);
-            telemetry.Properties.Add("SalesChannel", order.SalesChannel);
-            telemetry.Properties.Add("Status", order.Status);
-            this.appInsightsClient.TrackMetric(telemetry);
+            appInsightsClient.TrackEvent(telemetry);
         }
 
         private void RegisterOrder(CloudTable cloudTable, VtexOrder order)
         {
             try
             {
-                this.RegisterAppInsightEvent(order);
+                var realValue = double.Parse(order.Value) / 100; //TODO: Check how to make this configurable for account that use more than 2 digits
+                TrackEvent(order, realValue);
+                
                 // Create the TableOperation object that inserts the customer entity.
                 TableOperation insertOperation = TableOperation.Insert(order);
+                
                 // Execute the insert operation.
                 cloudTable.Execute(insertOperation);
             }
             catch (Exception ex)
             {
-                this.appInsightsClient.TrackException(ex);
-                throw ex.GetBaseException();
+                appInsightsClient.TrackException(ex, new Dictionary<string, string>() { { "workflow", "Register order" } });
             }
         }
 
@@ -331,9 +313,9 @@ namespace easydeploy
 
         public void Dispose()
         {
-            this.feedTimer.Stop();
-            this.feedTimer.Dispose();
-            this.feedTimer = null;
+            feedTimer.Stop();
+            feedTimer.Dispose();
+            feedTimer = null;
         }
 
         #endregion

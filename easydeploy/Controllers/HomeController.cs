@@ -1,12 +1,9 @@
-﻿using Microsoft.WindowsAzure.Storage;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Web;
-using System.Web.Mvc;
-using System.Configuration;
+﻿using easydeploy.Models;
+using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Table;
-using easydeploy.Models;
+using System;
+using System.Configuration;
+using System.Web.Mvc;
 
 namespace easydeploy.Controllers
 {
@@ -17,15 +14,13 @@ namespace easydeploy.Controllers
             //This is a simple example showing how to use the table on azure storage
 
             // Parse the connection string and return a reference to the storage account.
-            CloudStorageAccount storageAccount = CloudStorageAccount.Parse("DefaultEndpointsProtocol=https;AccountName=vtexdaystorage;AccountKey=ZZY9YbalGrFOFNm1v4TYKDZ00zzGmaIBQ2PlMT591xSwdLef0l7L2GJy1pSJznQvtqb2icRNEnV+MSYl3XAZ7Q==;");
-            //CloudStorageAccount.Parse(
-            //ConfigurationManager.AppSettings["StorageConnectionString"]);
+            CloudStorageAccount storageAccount = CloudStorageAccount.Parse(ConfigurationManager.AppSettings["StorageConnectionString"]);
 
             // Create the table client.
             CloudTableClient tableClient = storageAccount.CreateCloudTableClient();
 
             // Retrieve a reference to the table.
-            CloudTable table = tableClient.GetTableReference("orders");
+            CloudTable table = tableClient.GetTableReference("test");
 
             // Create the table if it doesn't exist.
             table.CreateIfNotExists();

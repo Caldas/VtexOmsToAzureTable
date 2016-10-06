@@ -1,8 +1,6 @@
 ﻿using Microsoft.ApplicationInsights.Extensibility;
 using System;
-using System.Collections.Generic;
 using System.Configuration;
-using System.Linq;
 using System.Web;
 using System.Web.Mvc;
 using System.Web.Optimization;
@@ -10,7 +8,7 @@ using System.Web.Routing;
 
 namespace easydeploy
 {
-    public class MvcApplication : System.Web.HttpApplication
+    public class MvcApplication : HttpApplication
     {
         private DataManager dataManagerInstance = null;
 
@@ -18,7 +16,7 @@ namespace easydeploy
         {
             TelemetryConfiguration.Active.InstrumentationKey = ConfigurationManager.AppSettings["instrumentationkey"];
 
-            this.dataManagerInstance = new DataManager();
+            dataManagerInstance = new DataManager();
 
             AreaRegistration.RegisterAllAreas();
             FilterConfig.RegisterGlobalFilters(GlobalFilters.Filters);
